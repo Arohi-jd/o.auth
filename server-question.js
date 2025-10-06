@@ -9,6 +9,10 @@
 const express = require('express')
 const path = require('path')
 // TODO: what more do we need to require?
+const cookieParser = require('cookie-parser')
+const jwt = require('jsonwebtoken')
+const bcrypt = require('bcryptjs')
+
 
 const app = express()
 const PORT = process.env.PORT || 4000
@@ -28,13 +32,29 @@ const users = {}
 
 // Helper: sign a JWT and set as HTTP-only cookie
 const setAuthCookie = (res, payload) => {
-  // TODO: implement this
+  const token = jwt.sign(payload, JWT_SECRET,{ expiresIn: '7d' })
+  res.cookie('token', token, {
+    httpOnly:true,
+    secure:isProd,
+    sameSite:'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7days
+  })
 }
+
 
 // Auth guard
 const requireAuth = (req, res, next) => {
-  // TODO: implement this
+  const token = req.cookies.token
+  if (!token) return res.status(401).json({ ok: false, error: 'Not authenticated' })
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET)
+    req.user =decoded
+    next()
+  } catch (err) {
+    return res.status(401).json({ ok: false, error: 'Invalid token' })
+  }
 }
+
 
 // Routes
 app.post('/api/signup', async (req, res) => {
@@ -58,7 +78,8 @@ app.post('/api/signup', async (req, res) => {
     }
 
     // TODO: hash password
-    const passwordHash = password // <-- hash this
+    const passwordHash =await bcrypt.hash(password, 10)
+ // <-- hash this
 
     users[key] = {
       name: name.trim(),
@@ -68,7 +89,7 @@ app.post('/api/signup', async (req, res) => {
     }
 
     // TODO: something needs to be done here
-
+      setAuthCookie(res, { email: key})
     return res.json({ ok: true, user: { name: users[key].name, email: key } })
   } catch (e) {
     console.error(e)
@@ -91,13 +112,15 @@ app.post('/api/login', async (req, res) => {
     }
 
     // TODO: validate password
-    const valid = password // <-- check this
+    const valid= await bcrypt.compare(password,user.passwordHash)
+ // <-- check this
 
     if (!valid) {
       return res.status(401).json({ ok: false, error: 'Invalid credentials' })
     }
 
     // TODO: something needs to be done here
+     setAuthCookie(res, { email: key})
 
     return res.json({ ok: true, user: { name: user.name, email: key } })
   } catch (e) {
@@ -107,15 +130,18 @@ app.post('/api/login', async (req, res) => {
 })
 
 app.get('/api/me', requireAuth, (req, res) => {
-  const key = email // TODO: where do we get this from?
+  const key=req.user.email // TODO: where do we get this from?
   const user = users[key]
   if (!user) return res.status(401).json({ ok: false, error: 'User not found' })
   return res.json({ ok: true, user: { name: user.name, email: user.email } })
 })
 
 app.post('/api/logout', (req, res) => {
-  // TODO: how do we log out?
-
+  res.clearCookie('token',{
+  httpOnly:true,
+  secure:isProd,
+  sameSite:'lax',
+})
   return res.json({ ok: true, message: 'Logged out' })
 })
 
